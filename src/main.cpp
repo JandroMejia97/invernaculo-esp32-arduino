@@ -1,5 +1,6 @@
 #include "UbidotsEsp32Mqtt.h"
 #include <HardwareSerial.h>
+#include "leds.h"
 
 // Serial port to communicate with the EDU-CIAA
 #define UART 2
@@ -72,6 +73,11 @@ void callback(char *topic, byte *payload, unsigned int length);
 void uartHandler();
 
 void setup() {
+  pinMode(LED_R, OUTPUT);
+  pinMode(LED_G, OUTPUT);
+  pinMode(LED_B, OUTPUT);
+
+  setRgbColor(C_ORANGE)
   // Set software serial baud to 115200;
   Serial.begin(115200);
   // Set hardware serial baud to 115200;
