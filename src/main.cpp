@@ -77,13 +77,14 @@ void setup() {
   pinMode(LED_G, OUTPUT);
   pinMode(LED_B, OUTPUT);
 
-  setRgbColor(C_ORANGE)
+  setRgbColor(C_ORANGE);
   // Set software serial baud to 115200;
   Serial.begin(115200);
   // Set hardware serial baud to 115200;
   SerialPort.begin(115200, SERIAL_8N1, SERIAL_RX, SERIAL_TX);
   // Connecting to a WiFi network
   client.connectToWifi(WIFI_SSID, WIFI_PASSWORD);
+  setRgbColor(C_GREEN);
   // Connecting to a mqtt broker
   client.setCallback(callback);
   client.setup();
@@ -105,8 +106,9 @@ void callback(char *topic, byte *payload, unsigned int length) {
 
 void loop() {
   if (!client.connected()) {
-    ESP_STATUS = ESP_NO_CONNECTED;
+    setRgbColor(C_ORANGE);
     client.reconnect();
+    setRgbColor(C_GREEN);
   }
 
   while(SerialPort.available()) {
@@ -118,6 +120,7 @@ void loop() {
 
 void uartHandler() {
   ESP_STATUS = ESP_SENDING_DATA;
+  setRgbColor(C_YELLOW);
   // Read the message from the UART
   message = SerialPort.readString();
   Serial.printf("Message received: %s");
@@ -129,9 +132,12 @@ void uartHandler() {
     client.add(VARIABLE_LABELS[index], message.substring(1).toFloat());
     // Publish the data to the Ubidots MQTT broker
     client.publish(DEVICE_LABEL);
+    ESP_STATUS = ESP_CONNECTED;
+    setRgbColor(C_GREEN);
   } else {
     Serial.println("Error: Invalid type, index out of range");
     ESP_STATUS = ESP_UART_ERROR;
+    setRgbColor(C_RED);
   }
 }
 
