@@ -7,6 +7,36 @@
 #define SERIAL_RX 16
 #define SERIAL_TX 17
 
+typedef enum {
+  ESP_INIT,
+  ESP_NO_CONNECTED,
+  ESP_CONNECTED,
+  ESP_SENDING_DATA,
+  ESP_NET_ERROR,
+  ESP_UART_ERROR,
+} ESP_Status_t;
+
+ESP_Status_t ESP_STATUS = ESP_INIT;
+
+String ESP_GetErrorAsString(ESP_Status_t status) {
+  switch (status) {
+    case ESP_INIT:
+      return "ESP_INIT";
+    case ESP_NO_CONNECTED:
+      return "ESP_NO_CONNECTED";
+    case ESP_CONNECTED:
+      return "ESP_CONNECTED";
+    case ESP_SENDING_DATA:
+      return "ESP_SENDING_DATA";
+    case ESP_NET_ERROR:
+      return "ESP_NET_ERROR";
+    case ESP_UART_ERROR:
+      return "ESP_UART_ERROR";
+    default:
+      return "ESP_UNKNOWN_ERROR";
+  }
+}
+
 // WiFi credentials
 const char *WIFI_SSID = "Fibertel WiFi839 2.4Ghz"; // Enter your WiFi name
 const char *WIFI_PASSWORD = "00496026574";  // Enter WiFi password
@@ -69,6 +99,7 @@ void callback(char *topic, byte *payload, unsigned int length) {
 
 void loop() {
   if (!client.connected()) {
+    ESP_STATUS = ESP_NO_CONNECTED;
     client.reconnect();
   }
 
@@ -80,6 +111,8 @@ void loop() {
 }
 
 void uartHandler() {
+  ESP_STATUS = ESP_SENDING_DATA;
+  // Read the message from the UART
   message = SerialPort.readString();
   Serial.printf("Message received: %s");
   // Get the type of the variable, and convert it to an integer
@@ -92,6 +125,7 @@ void uartHandler() {
     client.publish(DEVICE_LABEL);
   } else {
     Serial.println("Error: Invalid type, index out of range");
+    ESP_STATUS = ESP_UART_ERROR;
   }
 }
 
