@@ -106,9 +106,9 @@ void callback(char *topic, byte *payload, unsigned int length) {
 
 void loop() {
   if (!client.connected()) {
-    setRgbColor(C_ORANGE);
+    setRgbColor({C_ORANGE});
     client.reconnect();
-    setRgbColor(C_GREEN);
+    setRgbColor({C_GREEN});
   }
 
   while(SerialPort.available()) {
@@ -120,7 +120,7 @@ void loop() {
 
 void uartHandler() {
   ESP_STATUS = ESP_SENDING_DATA;
-  setRgbColor(C_YELLOW);
+  setRgbColor({C_YELLOW});
   // Read the message from the UART
   message = SerialPort.readString();
   Serial.printf("Message received: %s");
@@ -133,11 +133,11 @@ void uartHandler() {
     // Publish the data to the Ubidots MQTT broker
     client.publish(DEVICE_LABEL);
     ESP_STATUS = ESP_CONNECTED;
-    setRgbColor(C_GREEN);
+    setRgbColor({C_GREEN});
   } else {
     Serial.println("Error: Invalid type, index out of range");
     ESP_STATUS = ESP_UART_ERROR;
-    setRgbColor(C_RED);
+    setRgbColor({C_RED});
   }
 }
 
