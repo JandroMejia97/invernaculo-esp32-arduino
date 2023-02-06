@@ -9,26 +9,29 @@
 
 typedef enum {
   ESP_INIT,
-  ESP_NO_CONNECTED,
   ESP_CONNECTED,
+  ESP_DISCONNECTED,
+  ESP_READING_DATA,
   ESP_SENDING_DATA,
-  ESP_UART_ERROR,
+  ESP_DATA_ERROR,
 } ESP_Status_t;
 
 ESP_Status_t ESP_STATUS = ESP_INIT;
 
-String ESP_GetErrorAsString(ESP_Status_t status) {
+static String ESP_GetErrorAsString(ESP_Status_t status) {
   switch (status) {
     case ESP_INIT:
       return "ESP_INIT";
-    case ESP_NO_CONNECTED:
-      return "ESP_NO_CONNECTED";
     case ESP_CONNECTED:
       return "ESP_CONNECTED";
+    case ESP_DISCONNECTED:
+      return "ESP_DISCONNECTED";
+    case ESP_READING_DATA:
+      return "ESP_READING_DATA";
     case ESP_SENDING_DATA:
       return "ESP_SENDING_DATA";
-    case ESP_UART_ERROR:
-      return "ESP_UART_ERROR";
+    case ESP_DATA_ERROR:
+      return "ESP_DATA_ERROR";
     default:
       return "ESP_UNKNOWN_ERROR";
   }
@@ -43,13 +46,16 @@ const char *UBIDOTS_TOKEN = "BBFF-Pc8IvgnCXtKOaQ1lwUfq5oypeSU5AW";
 // Device label
 const char *DEVICE_LABEL = "esp32-edu-ciaa";
 // Variable labels
-const char *VARIABLE_LABELS[4] = {"temperature", "air-humidity", "light", "soil-humidity"};
+const char *VARIABLE_LABELS[4] = {"temperature", "air_humidity", "light", "soil_humidity"};
 
 // Message received from the UART
 String message;
 
 // Ubidots client
 Ubidots client(UBIDOTS_TOKEN);
+
+unsigned long timer;
+const int PUBLISH_FREQUENCY = 15000;
 
 // Hardware serial port to communicate with the EDU-CIAA
 HardwareSerial SerialPort(UART);
@@ -76,9 +82,11 @@ void setup() {
   // Connecting to a WiFi network
   client.connectToWifi(WIFI_SSID, WIFI_PASSWORD);
   // Connecting to a mqtt broker
+  client.setDebug(true);
   client.setCallback(callback);
   client.setup();
   client.reconnect();
+  timer = millis();
 }
 
 void callback(char *topic, byte *payload, unsigned int length) {
@@ -96,7 +104,7 @@ void callback(char *topic, byte *payload, unsigned int length) {
 
 void loop() {
   if (!client.connected()) {
-    ESP_STATUS = ESP_NO_CONNECTED;
+    ESP_STATUS = ESP_DISCONNECTED;
     client.reconnect();
   }
 
@@ -120,15 +128,22 @@ void uartHandler() {
   const int index = message[0] - '0';
   // Check if the type is valid, and if the index is in range
   if (index >= 0 && index < 4) {
+    ESP_STATUS = ESP_SENDING_DATA;
+    const char* variableLabel = VARIABLE_LABELS[index];
     const int value = message.substring(1).toInt();
-    Serial.printf("Variable: %s, Value: %d\n", VARIABLE_LABELS[index], value);
     // Add the value to the Ubidots client
-    client.add(VARIABLE_LABELS[index], value);
-    // Publish the data to the Ubidots MQTT broker
-    client.publish(DEVICE_LABEL);
+    client.add(variableLabel, value);
+    long diff = millis() - timer;
+    diff = diff < 0 ? -diff : diff;
+    if (diff > PUBLISH_FREQUENCY) {
+      // Publish the data to the Ubidots MQTT broker
+      client.publish(DEVICE_LABEL);
+      timer = millis();
+    }
+    ESP_STATUS = ESP_CONNECTED;
   } else {
-    Serial.println("Error: Invalid type, index out of range");
-    ESP_STATUS = ESP_UART_ERROR;
+    Serial.println("Error: Invalid type, index out of range\r\n");
+    ESP_STATUS = ESP_DATA_ERROR;
   }
   message = "";
 }
