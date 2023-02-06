@@ -1,5 +1,6 @@
 #include "UbidotsEsp32Mqtt.h"
 #include <HardwareSerial.h>
+#include "wifi_credentials.h"
 
 // Serial port to communicate with the EDU-CIAA
 #define UART 2
@@ -38,11 +39,11 @@ static String ESP_GetErrorAsString(ESP_Status_t status) {
 }
 
 // WiFi credentials
-const char *WIFI_SSID = "Fibertel WiFi839 2.4Ghz"; // Enter your WiFi name
-const char *WIFI_PASSWORD = "00496026574";  // Enter WiFi password
+const char *WIFI_SSID = WIFI_SSID_SECRETS;
+const char *WIFI_PASSWORD = WIFI_PASSWORD_SECRETS;
 
 // Ubidots TOKEN
-const char *UBIDOTS_TOKEN = "BBFF-Pc8IvgnCXtKOaQ1lwUfq5oypeSU5AW";
+const char *UBIDOTS_TOKEN = UBIDOTS_TOKEN_SECRETS;
 // Device label
 const char *DEVICE_LABEL = "esp32-edu-ciaa";
 // Variable labels
