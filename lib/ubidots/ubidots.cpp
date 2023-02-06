@@ -1,19 +1,20 @@
 #include "ubidots.h"
+#include "wifi_credentials.h"
 
-#if defined WIFI_SSID 
-  const char* WIFI_SSID_VALUE = WIFI_SSID;
+#if defined WIFI_SSID_SECRETS 
+  const char* WIFI_SSID = WIFI_SSID_SECRETS;
 #else
   #error "WIFI_SSID not defined. Please define it before importing Ubidots library"
 #endif
 
-#if defined WIFI_PASSWORD
-  const char* WIFI_PASSWORD_VALUE = WIFI_PASSWORD;
+#if defined WIFI_PASSWORD_SECRETS
+  const char* WIFI_PASSWORD = WIFI_PASSWORD_SECRETS;
 #else
   #error "WIFI_PASSWORD not defined. Please define it before importing Ubidots library"
 #endif
 
-#if defined UBIDOTS_TOKEN
-  const char* UBIDOTS_TOKEN_VALUE = UBIDOTS_TOKEN;
+#if defined UBIDOTS_TOKEN_SECRETS
+  const char* UBIDOTS_TOKEN = UBIDOTS_TOKEN_SECRETS;
 #else
   #error "UBIDOTS_TOKEN not defined. Please define it before importing Ubidots library"
 #endif
@@ -52,13 +53,16 @@ ESP_Status_t getStatus() {
 /**
  * @brief Public Ubidots client
  */
-static Ubidots client(UBIDOTS_TOKEN_VALUE);
+static Ubidots client(UBIDOTS_TOKEN);
+static unsigned long timer;
+static const int PUBLISH_FREQUENCY = 15000;
 
 bool clientIsConnected() {
   return client.connected();
 }
 
 void clientReconnect() {
+  setStatus(ESP_DISCONNECTED);
   client.reconnect();
 }
 
@@ -77,13 +81,15 @@ void callback(char *topic, byte *payload, unsigned int length);
 
 void ubidotsSetup() {
   // Connecting to a WiFi network
-  client.connectToWifi(WIFI_SSID_VALUE, WIFI_PASSWORD_VALUE);
+  client.connectToWifi(WIFI_SSID, WIFI_PASSWORD);
+  // Set the debug mode
+  client.setDebug(true);
   // Connecting to a mqtt broker
   client.setCallback(callback);
   client.setup();
   client.reconnect();
-  Serial.println("Ubidots setup finished");
-  ESP_STATUS = ESP_CONNECTED;
+  setStatus(ESP_CONNECTED);
+  timer = millis();
 }
 
 void publishData(int index, int value) {
@@ -92,16 +98,21 @@ void publishData(int index, int value) {
   if (index >= 0 && index < len) {
     ESP_STATUS = ESP_SENDING_DATA;
     const char* variableLabel = LABELS[index];
-    Serial.printf("%s: %d\r\n", variableLabel, value);
     // Add the value to the Ubidots client
     client.add(variableLabel, value);
-    // Publish the data to the Ubidots MQTT broker
-    client.publish(DEVICE_LABEL);
-    ESP_STATUS = ESP_CONNECTED;
-    Serial.printf("%s published to Ubidots\r\n", variableLabel);
+
+    // Check if the time to publish the data has passed
+    long diff = millis() - timer;
+    diff = diff < 0 ? -diff : diff;
+    if (diff > PUBLISH_FREQUENCY) {
+      // Publish the data to the Ubidots MQTT broker
+      client.publish(DEVICE_LABEL);
+      timer = millis();
+    }
+    setStatus(ESP_CONNECTED);
   } else {
     Serial.println("Error: Invalid type, index out of range\r\n");
-    ESP_STATUS = ESP_DATA_ERROR;
+    setStatus(ESP_DATA_ERROR);
   }
 }
 

@@ -12,7 +12,6 @@ void setup() {
 
 void loop() {
   if (!clientIsConnected()) {
-    setStatus(ESP_DISCONNECTED);
     clientReconnect();
   }
 

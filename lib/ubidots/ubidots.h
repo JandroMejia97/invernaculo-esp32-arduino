@@ -2,12 +2,6 @@
 #define __UBIDOTS_H__
 
 #include "UbidotsEsp32Mqtt.h"
-// WiFi credentials
-#define WIFI_SSID "Fibertel WiFi839 2.4Ghz"
-#define WIFI_PASSWORD "00496026574"
-
-// Ubidots TOKEN
-#define UBIDOTS_TOKEN "BBFF-Pc8IvgnCXtKOaQ1lwUfq5oypeSU5AW"
 
 typedef enum {
   ESP_INIT,
