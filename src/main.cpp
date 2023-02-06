@@ -12,7 +12,6 @@ typedef enum {
   ESP_NO_CONNECTED,
   ESP_CONNECTED,
   ESP_SENDING_DATA,
-  ESP_NET_ERROR,
   ESP_UART_ERROR,
 } ESP_Status_t;
 
@@ -28,8 +27,6 @@ String ESP_GetErrorAsString(ESP_Status_t status) {
       return "ESP_CONNECTED";
     case ESP_SENDING_DATA:
       return "ESP_SENDING_DATA";
-    case ESP_NET_ERROR:
-      return "ESP_NET_ERROR";
     case ESP_UART_ERROR:
       return "ESP_UART_ERROR";
     default:
@@ -46,7 +43,7 @@ const char *UBIDOTS_TOKEN = "BBFF-Pc8IvgnCXtKOaQ1lwUfq5oypeSU5AW";
 // Device label
 const char *DEVICE_LABEL = "esp32-edu-ciaa";
 // Variable labels
-const char *VARIABLE_LABELS[4] = {"temperature", "soil-humidity", "light", "air-humidity"};
+const char *VARIABLE_LABELS[4] = {"temperature", "air-humidity", "light", "soil-humidity"};
 
 // Message received from the UART
 String message;
@@ -113,19 +110,26 @@ void loop() {
 void uartHandler() {
   ESP_STATUS = ESP_SENDING_DATA;
   // Read the message from the UART
-  message = SerialPort.readString();
-  Serial.printf("Message received: %s");
+  int i = 0;
+  while (SerialPort.available() && SerialPort.peek() != '\n') {
+    message += (char) SerialPort.read();
+    i++;
+  }
+  SerialPort.read();
   // Get the type of the variable, and convert it to an integer
   const int index = message[0] - '0';
   // Check if the type is valid, and if the index is in range
   if (index >= 0 && index < 4) {
+    const int value = message.substring(1).toInt();
+    Serial.printf("Variable: %s, Value: %d\n", VARIABLE_LABELS[index], value);
     // Add the value to the Ubidots client
-    client.add(VARIABLE_LABELS[index], message.substring(1).toFloat());
+    client.add(VARIABLE_LABELS[index], value);
     // Publish the data to the Ubidots MQTT broker
     client.publish(DEVICE_LABEL);
   } else {
     Serial.println("Error: Invalid type, index out of range");
     ESP_STATUS = ESP_UART_ERROR;
   }
+  message = "";
 }
 
