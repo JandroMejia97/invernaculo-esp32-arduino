@@ -2,7 +2,8 @@
 
 This project consists of an ESP-32s that uses Arduino libraries to receive data (temperature, air/soil humidity, and light intensity) through UART and send it to an MQTT server on Ubidots. PlatformIO is used as the integrated development environment (IDE).
 
-## Before start...
+## Before start
+
 Before compiling the project, you must create a file named wifi_credentials.h with the following defined macros:
 
 ```c++
@@ -28,3 +29,29 @@ Additionally, you can customize the project by overwriting the following constan
 ```
 
 | ⚠️ Make sure that the slave device transmits at the same baud rate defined in the BAUD_RATE macro.
+
+## Future changes
+
+We are planning to add the following features in the future:
+
+* Add support for sensors without dependency on an external MCU.
+* Receive signals from the MQTT server to control some actuators.
+* Set the device to sleep mode to save energy.
+* Set the WiFi credentials through the next options:
+  * Through the MQTT server.
+  * Through a web app.
+  * Through a mobile app.
+  * Through a Bluetooth connection.
+
+## Libraries
+
+The following libraries are used in this project:
+
+* [Ubidots Arduino MQTT](https://github.com/ubidots/esp32-mqtt)
+* [HardwareSerial](https://github.com/espressif/arduino-esp32/blob/master/cores/esp32/HardwareSerial.h)
+* [Arduino](https://www.arduino.cc/reference/en/libraries/)
+
+## References
+
+* [Connect an ESP32-DevKitC to Ubidots over MQTT](https://help.ubidots.com/en/articles/748067-connect-an-esp32-devkitc-to-ubidots-over-mqtt)
+* [ESP32 UART Communication Explained with Example](https://microcontrollerslab.com/esp32-uart-communication-pins-example/)
