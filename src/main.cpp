@@ -1,196 +1,256 @@
-#include "UbidotsEsp32Mqtt.h"
-#include <HardwareSerial.h>
+#include <WiFi.h>
+#include <UbidotsEsp32Mqtt.h>
+#include <DHT.h>
 #include "wifi_credentials.h"
 
-// Baud rate to communicate with the EDU-CIAA
-#define BAUD_RATE 115200
-// Serial port to communicate with the EDU-CIAA
-#define DATA_UART 2
-// Serial port pins
-#define SERIAL_RX 16
-#define SERIAL_TX 17
-
-/*
- * Frequency to publish the data to the Ubidots MQTT broker.
- * The data is published every FREQUENCY_TO_PUBLISH minutes, after
- * the last data was published or the last time the data was read from the UART.
- * For testing purposes, you can set this value to 1 (or minor).
- */
-#define FREQUENCY_TO_PUBLISH_IN_M 10
-#define FREQUENCY_TO_PUBLISH_IN_MS (FREQUENCY_TO_PUBLISH_IN_M * 60 * 1000)
-
-typedef enum {
-  ESP_INIT,
-  ESP_CONNECTED,
-  ESP_DISCONNECTED,
-  ESP_READING_DATA,
-  ESP_SENDING_DATA,
-  ESP_DATA_ERROR,
-} ESP_Status_t;
-
-ESP_Status_t ESP_STATUS = ESP_INIT;
-
-static String ESP_GetErrorAsString(ESP_Status_t status) {
-  switch (status) {
-    case ESP_INIT:
-      return "ESP_INIT";
-    case ESP_CONNECTED:
-      return "ESP_CONNECTED";
-    case ESP_DISCONNECTED:
-      return "ESP_DISCONNECTED";
-    case ESP_READING_DATA:
-      return "ESP_READING_DATA";
-    case ESP_SENDING_DATA:
-      return "ESP_SENDING_DATA";
-    case ESP_DATA_ERROR:
-      return "ESP_DATA_ERROR";
-    default:
-      return "ESP_UNKNOWN_ERROR";
-  }
-}
-
-// WiFi credentials
-const char *WIFI_SSID = WIFI_SSID_SECRETS;
-const char *WIFI_PASSWORD = WIFI_PASSWORD_SECRETS;
-
-// Ubidots TOKEN
-const char *UBIDOTS_TOKEN = UBIDOTS_TOKEN_SECRETS;
-// Device label
+const char *WIFINAME = WIFI_SSID_SECRETS;
+const char *WIFIPASS = WIFI_PASSWORD_SECRETS;
+const char *TOKEN = UBIDOTS_TOKEN_SECRETS;
 const char *DEVICE_LABEL = DEVICE_LABEL_SECRETS;
-// Variable labels
-const char *VARIABLE_LABELS[4] = {"temperature", "air_humidity", "light", "soil_humidity"};
 
-// Message received from the UART
-String message;
+// Configuración de MQTT y Ubidots
+const char* VARIABLE_LABEL_TEMP = "temperature";
+const char* VARIABLE_LABEL_AIR_HUM = "air_humidity";
+const char* VARIABLE_LABEL_LIGHT = "light";
+const char* VARIABLE_LABEL_SOIL_HUM = "soil_humidity";
+const char* VARIABLE_LABEL_FAN = "fan";
+const char* VARIABLE_LABEL_WATER_PUMP = "water_pump";
 
-// Ubidots client
-Ubidots client(UBIDOTS_TOKEN);
+Ubidots ubidots(TOKEN);
 
-unsigned long timer;
-const int PUBLISH_FREQUENCY_IN_MS = FREQUENCY_TO_PUBLISH_IN_MS;
+// Configuración de sensores
+#define DHTPIN 4       // Pin donde está conectado el DHT11
+#define DHTTYPE DHT11  // Tipo de sensor DHT11
+DHT dht(DHTPIN, DHTTYPE);
 
-// Hardware serial port to communicate with the EDU-CIAA
-HardwareSerial SerialPort(DATA_UART);
+#define SOIL_MOISTURE_PIN 34 // Pin analógico para humedad del suelo
+#define LIGHT_SENSOR_PIN 35  // Pin analógico para la fotoresistencia
 
-/**
- * @brief Callback function to handle the data received from the MQTT broker
- * 
- * @param topic - Topic where the data was published
- * @param payload - Data received
- * @param length - Length of the data received
- */
-void callback(char *topic, byte *payload, unsigned int length);
+// Configuración de actuadores
+#define FAN_PIN 12
+#define WATER_PUMP_PIN 14
 
-/**
- * @brief Function to publish the data to the Ubidots MQTT broker
- */
-void publishData(void *pvParameters);
+// Variables de muestreo
+const long tempHumInterval = 60000 * 10; // 1 minuto
+const long soilHumInterval = 3000000 * 3; // 5 minutos
+const long lightInterval = 3000000 * 3;   // 5 minutos
 
-/**
- * @brief Function to handle the data received from the UART
- */
-void uartHandler();
+long lastTempHumTime = 0;
+long lastSoilHumTime = 0;
+long lastLightTime = 0;
+String fanLastValue = "OFF";
+String fanCurrentState = "OFF";
+String waterPumpLastValue = "OFF";
+String waterPumpCurrentState = "OFF";
+
+TaskHandle_t TaskTempHumHandle;
+TaskHandle_t TaskSoilHumHandle;
+TaskHandle_t TaskLightHandle;
+
+SemaphoreHandle_t sensorMutex;
+
+void setup_ubidots();
+
+void readTempHum(void * parameter);
+
+void readSoilHum(void * parameter);
+
+void readLight(void * parameter);
+
+void controlActuators(float temperature, float airHumidity);
+
+void controlSoilHum(int soilMoisture);
+
+void callback(char* topic, byte* payload, unsigned int length);
 
 void setup() {
-  // Set software serial baud to 115200;
-  Serial.begin(BAUD_RATE);
-  // Set hardware serial baud to 115200;
-  SerialPort.begin(BAUD_RATE, SERIAL_8N1, SERIAL_RX, SERIAL_TX);
-  // Connecting to a WiFi network
-  client.connectToWifi(WIFI_SSID, WIFI_PASSWORD);
-  // Connecting to a mqtt broker
-  client.setDebug(true);
-  client.setCallback(callback);
-  client.setup();
-  client.reconnect();
-  timer = millis();
+  Serial.begin(115200);
+  
+  pinMode(FAN_PIN, OUTPUT);
+  pinMode(WATER_PUMP_PIN, OUTPUT);
 
-  /* TaskHandle_t publishDataHandle = NULL;
+  // Iniciar Ubidots
+  setup_ubidots();
 
-  xTaskCreatePinnedToCore(
-    publishData, // Task function.
-    "publishData", // name of task.
-    10000, // Stack size of task
-    NULL, // parameter of the task
-    1, // priority of the task
-    &publishDataHandle, // Task handle to keep track of created task
-    0
-  ); // pin task to core 0
+  // Iniciar el sensor DHT11  
+  dht.begin();
 
-  if (publishDataHandle == NULL) {
-    Serial.println("Error creating publishData task");
-  } else {
-    Serial.println("publishData task created");
-    vTaskDelete(publishDataHandle);
-  } */
+  sensorMutex = xSemaphoreCreateMutex();
+
+  // Crear tareas para los sensores, corriendo en el segundo núcleo del ESP32
+  xTaskCreatePinnedToCore(readTempHum, "TaskTempHum", 10000, NULL, 1, &TaskTempHumHandle, 1);
+  xTaskCreatePinnedToCore(readSoilHum, "TaskSoilHum", 10000, NULL, 1, &TaskSoilHumHandle, 1);
+  xTaskCreatePinnedToCore(readLight, "TaskLight", 10000, NULL, 1, &TaskLightHandle, 1);
+
+  Serial.println("Sistema listo.");
 }
 
-void callback(char *topic, byte *payload, unsigned int length) {
-  Serial.print("Message arrived in topic: ");
-  Serial.println(topic);
-  int i;
-  char data[length];
-  for (i = 0; i < length; i++) {
-      data[i] = (char) payload[i];
-  }
-  data[i] = '\0';
-  Serial.printf("Data: \n%s\n", data);
-  Serial.println("-----------------------");
+void setup_ubidots() {
+  Serial.print("Conectando a la red: ");
+  Serial.println(WIFINAME);
+
+  ubidots.connectToWifi(WIFINAME, WIFIPASS);
+
+  ubidots.setDebug(true);
+  ubidots.setCallback(callback);
+  ubidots.setup();
+  ubidots.reconnect();
+  ubidots.subscribeLastValue(DEVICE_LABEL, VARIABLE_LABEL_FAN);
+  ubidots.subscribeLastValue(DEVICE_LABEL, VARIABLE_LABEL_WATER_PUMP);
+
 }
 
 void loop() {
-  if (!client.connected()) {
-    ESP_STATUS = ESP_DISCONNECTED;
-    client.reconnect();
+  // En el loop principal solo se procesa MQTT para ahorrar energía
+  if (!ubidots.connected()) {
+    ubidots.reconnect();
+    ubidots.subscribeLastValue(DEVICE_LABEL, VARIABLE_LABEL_FAN);
+    ubidots.subscribeLastValue(DEVICE_LABEL, VARIABLE_LABEL_WATER_PUMP);
   }
-
-  while(SerialPort.available()) {
-    uartHandler();
-  }
-
-  client.loop();
+  ubidots.loop();
+  delay(1000);
 }
 
-void uartHandler() {
-  ESP_STATUS = ESP_SENDING_DATA;
-  // Read the message from the UART
-  int i = 0;
-  while (SerialPort.available() && SerialPort.peek() != '\n') {
-    message += (char) SerialPort.read();
-    i++;
-  }
-  SerialPort.read();
-  // Get the type of the variable, and convert it to an integer
-  const int index = message[0] - '0';
-  // Check if the type is valid, and if the index is in range
-  if (index >= 0 && index < 4) {
-    ESP_STATUS = ESP_SENDING_DATA;
-    const char* variableLabel = VARIABLE_LABELS[index];
-    const int value = message.substring(1).toInt();
-    // Add the value to the Ubidots client
-    client.add(variableLabel, value);
-    long diff = millis() - timer;
-    diff = diff < 0 ? -diff : diff;
-    if (diff > PUBLISH_FREQUENCY_IN_MS) {
-      // Publish the data to the Ubidots MQTT broker
-      client.publish(DEVICE_LABEL);
-      timer = millis();
+void readTempHum(void * parameter) {
+  for (;;) {
+    long now = millis();
+    if (now - lastTempHumTime > tempHumInterval && xSemaphoreTake(sensorMutex, portMAX_DELAY) == pdTRUE) {
+      lastTempHumTime = now;
+      float temperature = dht.readTemperature();
+      float airHumidity = dht.readHumidity();
+      xSemaphoreGive(sensorMutex);
+      if (!isnan(temperature) && !isnan(airHumidity)) {
+        Serial.print("Temperature: ");
+        Serial.print(temperature);
+        Serial.print(" °C, Air Humidity: ");
+        Serial.print(airHumidity);
+        Serial.println(" %");
+
+        ubidots.add(VARIABLE_LABEL_TEMP, temperature);
+        ubidots.add(VARIABLE_LABEL_AIR_HUM, airHumidity);
+        ubidots.publish(DEVICE_LABEL);
+        
+        controlActuators(temperature, airHumidity);
+      } else {
+        Serial.println("Error leyendo el DHT11");
+      }
     }
-    ESP_STATUS = ESP_CONNECTED;
+    vTaskDelay(100 / portTICK_PERIOD_MS); // Tiempo de espera para la tarea
+  }
+}
+
+void readSoilHum(void * parameter) {
+  for (;;) {
+    long now = millis();
+    if (now - lastSoilHumTime > soilHumInterval && xSemaphoreTake(sensorMutex, portMAX_DELAY) == pdTRUE) {
+      lastSoilHumTime = now;
+      int soilMoisture = analogRead(SOIL_MOISTURE_PIN);
+      const int soilMoistureMapped = map(soilMoisture, 0, 4095, 0, 100);
+      xSemaphoreGive(sensorMutex);
+
+      Serial.print("Soil Moisture: ");
+      Serial.println(soilMoistureMapped);
+
+      ubidots.add(VARIABLE_LABEL_SOIL_HUM, soilMoistureMapped);
+      ubidots.publish(DEVICE_LABEL);
+      
+      controlSoilHum(soilMoistureMapped);
+    }
+    vTaskDelay(100 / portTICK_PERIOD_MS); // Tiempo de espera para la tarea
+  }
+}
+
+void readLight(void * parameter) {
+  for (;;) {
+    long now = millis();
+    if (now - lastLightTime > lightInterval && xSemaphoreTake(sensorMutex, portMAX_DELAY) == pdTRUE) {
+      lastLightTime = now;
+      int lightLevel = analogRead(LIGHT_SENSOR_PIN);
+      const int lightLevelMapped = map(lightLevel, 0, 4095, 0, 100);
+      xSemaphoreGive(sensorMutex);
+
+      Serial.print("Light Level: ");
+      Serial.println(lightLevelMapped);
+
+      ubidots.add(VARIABLE_LABEL_LIGHT, lightLevelMapped);
+      ubidots.publish(DEVICE_LABEL);
+    }
+    vTaskDelay(100 / portTICK_PERIOD_MS); // Tiempo de espera para la tarea
+  }
+}
+
+void controlActuators(float temperature, float airHumidity) {
+  if (temperature > 30) {
+    fanCurrentState = "ON";
   } else {
-    Serial.println("Error: Invalid type, index out of range\r\n");
-    ESP_STATUS = ESP_DATA_ERROR;
+    fanCurrentState = "OFF";
   }
-  message = "";
-}
-
-void publishData(void *params) {
-  const TickType_t xDelay = PUBLISH_FREQUENCY_IN_MS / portTICK_PERIOD_MS;
-  while (1) {
-    Serial.printf("ESP_STATUS: %s\r\n", ESP_GetErrorAsString(ESP_STATUS).c_str());
-    // Publish the data to the Ubidots MQTT broker
-    client.publish(DEVICE_LABEL);
-    vTaskDelay(xDelay);
+  
+  if (fanCurrentState != fanLastValue) {
+    const float value = fanCurrentState == "ON" ? HIGH : LOW;
+    digitalWrite(FAN_PIN, value);
+    ubidots.add(VARIABLE_LABEL_FAN, value);
+    ubidots.publish(DEVICE_LABEL);
   }
 }
 
+void controlSoilHum(int soilMoisture) {
+  if (soilMoisture < 20) {
+    waterPumpCurrentState = "ON";
+  } else {
+    waterPumpCurrentState = "OFF";
+  }
+
+  if (waterPumpCurrentState != waterPumpLastValue) {
+    const float value = waterPumpCurrentState == "ON" ? HIGH : LOW;
+    digitalWrite(WATER_PUMP_PIN, value);
+    ubidots.add(VARIABLE_LABEL_WATER_PUMP, value);
+    ubidots.publish(DEVICE_LABEL);
+  }
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  String message;
+  for (int i = 0; i < length; i++) {
+    message += (char)payload[i];
+  }
+  message.trim();
+  const char* strMessage = message.c_str();
+  printf("Mensaje recibido en el topic %s: %s\n", topic, strMessage);
+  if (String(topic).indexOf(VARIABLE_LABEL_FAN)) {
+    const uint8_t fanValue = atoi(strMessage);
+    printf("Valor del ventilador: %d\n", fanValue);
+    if (fanValue == 1) {
+      fanCurrentState = "ON";
+      Serial.println("Ventilador encendido remotamente.");
+    } else if (fanValue == 0) {
+      fanLastValue = "OFF";
+      Serial.println("Ventilador apagado remotamente.");
+    }
+
+    if (fanCurrentState != fanLastValue) {
+      const float value = fanCurrentState == "ON" ? HIGH : LOW;
+      digitalWrite(FAN_PIN, value);
+      ubidots.add(VARIABLE_LABEL_FAN, value);
+      ubidots.publish(DEVICE_LABEL);
+    }
+
+  } else if (String(topic).indexOf(VARIABLE_LABEL_WATER_PUMP)) {
+    const uint8_t waterPumpValue = atoi(strMessage);
+    printf("Valor de la bomba de agua: %d\n", waterPumpValue);
+    if (waterPumpValue == 1) {
+      waterPumpCurrentState = "ON";
+      Serial.println("Bomba de agua encendida remotamente.");
+    } else if (waterPumpValue == 0) {
+      waterPumpLastValue = "OFF";
+      Serial.println("Bomba de agua apagada remotamente.");
+    }
+
+    if (waterPumpCurrentState != waterPumpLastValue) {
+      const float value = waterPumpCurrentState == "ON" ? HIGH : LOW;
+      digitalWrite(WATER_PUMP_PIN, value);
+      ubidots.add(VARIABLE_LABEL_WATER_PUMP, value);
+      ubidots.publish(DEVICE_LABEL);
+    }
+  }
+}
