@@ -51,7 +51,7 @@ Before compiling the project, you must create a file named wifi_credentials.h wi
 
 ## Ubidots Setup
 
-- The system connects to Ubidots using MQTT to publish sensor data and subscribe to actuator control topics. 
+- The system connects to Ubidots using MQTT to publish sensor data and subscribe to actuator control topics.
 - Ensure that the following variables are configured in your Ubidots dashboard:
   - `temperature`: for temperature readings.
   - `air_humidity`: for air humidity readings.

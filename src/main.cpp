@@ -61,6 +61,8 @@ void controlActuators(float temperature, float airHumidity);
 
 void controlSoilHum(int soilMoisture);
 
+void updateActuatorState(const char* actuatorName, const char* variableLabel, int pin, String* currentState, String* lastState, const char* strMessage);
+
 void callback(char* topic, byte* payload, unsigned int length);
 
 void setup() {
@@ -210,47 +212,46 @@ void controlSoilHum(int soilMoisture) {
 }
 
 void callback(char* topic, byte* payload, unsigned int length) {
+  // Build the message string from the payload bytes.
   String message;
-  for (int i = 0; i < length; i++) {
+  for (unsigned int i = 0; i < length; i++) {
     message += (char)payload[i];
   }
   message.trim();
   const char* strMessage = message.c_str();
-  printf("Mensaje recibido en el topic %s: %s\n", topic, strMessage);
-  if (String(topic).indexOf(VARIABLE_LABEL_FAN)) {
-    const uint8_t fanValue = atoi(strMessage);
-    printf("Valor del ventilador: %d\n", fanValue);
-    if (fanValue == 1) {
-      fanCurrentState = "ON";
-      Serial.println("Ventilador encendido remotamente.");
-    } else if (fanValue == 0) {
-      fanLastValue = "OFF";
-      Serial.println("Ventilador apagado remotamente.");
-    }
+  
+  // Print received topic and message for debugging.
+  printf("Message received on topic %s: %s\n", topic, strMessage);
 
-    if (fanCurrentState != fanLastValue) {
-      const float value = fanCurrentState == "ON" ? HIGH : LOW;
-      digitalWrite(FAN_PIN, value);
-      ubidots.add(VARIABLE_LABEL_FAN, value);
-      ubidots.publish(DEVICE_LABEL);
-    }
+  // Dispatch to the appropriate handler based on the topic.
+  String topicStr(topic);
+  if (topicStr.indexOf(VARIABLE_LABEL_FAN) != -1) {
+    updateActuatorState("Fan", VARIABLE_LABEL_FAN, FAN_PIN, &fanCurrentState, &fanLastValue, strMessage);
+  } else if (topicStr.indexOf(VARIABLE_LABEL_WATER_PUMP) != -1) {
+    updateActuatorState("Water Pump", VARIABLE_LABEL_WATER_PUMP, WATER_PUMP_PIN, &waterPumpCurrentState, &waterPumpLastValue, strMessage);
+  }
+}
 
-  } else if (String(topic).indexOf(VARIABLE_LABEL_WATER_PUMP)) {
-    const uint8_t waterPumpValue = atoi(strMessage);
-    printf("Valor de la bomba de agua: %d\n", waterPumpValue);
-    if (waterPumpValue == 1) {
-      waterPumpCurrentState = "ON";
-      Serial.println("Bomba de agua encendida remotamente.");
-    } else if (waterPumpValue == 0) {
-      waterPumpLastValue = "OFF";
-      Serial.println("Bomba de agua apagada remotamente.");
-    }
+void updateActuatorState(const char* actuatorName, const char* variableLabel, int pin, String* currentState, String* lastState, const char* strMessage) {
+  // Convert the received message to an integer value.
+  const uint8_t actuatorValue = atoi(strMessage);
+  printf("%s value received: %d\n", actuatorName, actuatorValue);
 
-    if (waterPumpCurrentState != waterPumpLastValue) {
-      const float value = waterPumpCurrentState == "ON" ? HIGH : LOW;
-      digitalWrite(WATER_PUMP_PIN, value);
-      ubidots.add(VARIABLE_LABEL_WATER_PUMP, value);
-      ubidots.publish(DEVICE_LABEL);
-    }
+  // Set the actuator's current state based on the received value.
+  if (actuatorValue == 1) {
+    *currentState = "ON";
+    Serial.printf("%s turned ON remotely.\n", actuatorName);
+  } else if (actuatorValue == 0) {
+    *currentState = "OFF";
+    Serial.printf("%s turned OFF remotely.\n", actuatorName);
+  }
+
+  // Update the actuator only if there is a change in state.
+  if (*currentState != *lastState) {
+    const float digitalValue = (*currentState == "ON") ? HIGH : LOW;
+    digitalWrite(pin, digitalValue);
+    ubidots.add(variableLabel, digitalValue);
+    ubidots.publish(DEVICE_LABEL);
+    *lastState = *currentState;
   }
 }
