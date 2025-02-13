@@ -31,9 +31,9 @@ DHT dht(DHTPIN, DHTTYPE);
 #define WATER_PUMP_PIN 14
 
 // Variables de muestreo
-const long tempHumInterval = 60000 * 10; // 1 minuto
-const long soilHumInterval = 3000000 * 3; // 5 minutos
-const long lightInterval = 3000000 * 3;   // 5 minutos
+const long tempHumInterval = 60000; // 1 minuto
+const long soilHumInterval = 300000; // 5 minutos
+const long lightInterval = 150000; // 2.5 minutos
 
 long lastTempHumTime = 0;
 long lastSoilHumTime = 0;
